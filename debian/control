@@ -1,0 +1,31 @@
+Source: statshed-cli
+Section: utils
+Priority: optional
+Maintainer: Sean <sean@realgo.com>
+Build-Depends: debhelper-compat (= 13),
+               golang-go (>= 2:1.21~)
+Standards-Version: 4.6.2
+Homepage: https://github.com/statshed/statshed-cli
+Vcs-Git: https://github.com/statshed/statshed-cli.git
+Vcs-Browser: https://github.com/statshed/statshed-cli
+Rules-Requires-Root: no
+
+Package: statshed-cli
+Architecture: any
+Depends: ${shlibs:Depends},
+         ${misc:Depends}
+Description: Command-line interface for StatShed status dashboard
+ StatShed CLI provides the "statshed" command for interacting with the
+ StatShed status dashboard from the command line:
+ .
+  - submit: Report job status (success, error, progress), optionally with a log
+  - stream: Submit stdin lines as debounced progress updates
+  - wrap: Run a command, forward its IO, and report its progress and exit
+  - health: Check overall system health
+  - groups: List all groups with health summaries
+  - jobs: List jobs within a specific group
+  - config: View and update global timeout configuration
+  - group-config: View and update group-specific settings
+  - completion: Generate shell completion scripts
+ .
+ This package ships a single dependency-free Go binary.

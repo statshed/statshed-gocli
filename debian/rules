@@ -1,0 +1,38 @@
+#!/usr/bin/make -f
+# AIDEV-NOTE: Recipe indentation MUST be tabs. We build the Go binary with the
+# vendored modules (no network) and install it plus the man page and shell
+# completions. dh-golang is intentionally not used; the steps are explicit so
+# the build works with just golang-go.
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+# Keep the build fully offline and reproducible.
+export GOFLAGS = -mod=vendor -trimpath
+export GOTOOLCHAIN = local
+export CGO_ENABLED = 0
+export GOCACHE = $(CURDIR)/.gocache
+export GOPATH = $(CURDIR)/.gopath
+
+PKGDIR  = debian/statshed-cli
+VERSION = $(shell dpkg-parsechangelog -SVersion)
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	go build -ldflags "-s -w -X main.version=$(VERSION)" -o statshed ./cmd/statshed
+
+override_dh_auto_test:
+	go test ./...
+
+override_dh_auto_install:
+	install -D -m0755 statshed $(PKGDIR)/usr/bin/statshed
+	install -d $(PKGDIR)/usr/share/bash-completion/completions
+	./statshed completion bash > $(PKGDIR)/usr/share/bash-completion/completions/statshed
+	install -d $(PKGDIR)/usr/share/zsh/vendor-completions
+	./statshed completion zsh > $(PKGDIR)/usr/share/zsh/vendor-completions/_statshed
+	install -d $(PKGDIR)/usr/share/fish/vendor_completions.d
+	./statshed completion fish > $(PKGDIR)/usr/share/fish/vendor_completions.d/statshed.fish
+
+override_dh_auto_clean:
+	rm -f statshed
+	rm -rf $(CURDIR)/.gocache $(CURDIR)/.gopath

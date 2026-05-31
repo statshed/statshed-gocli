@@ -1,0 +1,251 @@
+.\" Man page for statshed
+.\" AIDEV-NOTE: This man page is included in both PyPI sdist and Debian packages
+.TH STATSHED 1 "January 2026" "statshed 1.0.0" "User Commands"
+.SH NAME
+statshed \- command-line interface for StatShed status dashboard
+.SH SYNOPSIS
+.B statshed
+[\fIOPTIONS\fR] \fICOMMAND\fR [\fIARGS\fR]...
+.SH DESCRIPTION
+.B statshed
+is a command-line tool for interacting with the StatShed status dashboard.
+It allows users to submit job status updates, check system health, list
+groups and jobs, and configure timeout settings.
+.PP
+StatShed is a lightweight dashboard for tracking the status of periodic
+tasks such as cron jobs, CI/CD pipelines, and backup processes.
+.SH GLOBAL OPTIONS
+.TP
+.BR \-u ", " \-\-url " " \fIURL\fR
+StatShed API URL. Overrides configuration file and environment variable.
+.TP
+.BR \-c ", " \-\-config " " \fIPATH\fR
+Path to configuration file.
+.TP
+.BR \-q ", " \-\-quiet
+Suppress non-error output.
+.TP
+.B \-\-no\-color
+Disable colored output.
+.TP
+.B \-\-json
+Output in JSON format.
+.TP
+.B \-\-version
+Show the version and exit.
+.TP
+.B \-\-help
+Show help message and exit.
+.SH COMMANDS
+.SS submit
+Submit a job status update.
+.PP
+.B statshed submit
+.BR \-g " " \fIGROUP\fR
+.BR \-j " " \fIJOB\fR
+.BR \-s " " \fISTATUS\fR
+[\fB\-m\fR \fIMESSAGE\fR]
+[\fB\-\-strict\fR]
+.TP
+.BR \-g ", " \-\-group " " \fIGROUP\fR
+Group name (required).
+.TP
+.BR \-j ", " \-\-job " " \fIJOB\fR
+Job name (required).
+.TP
+.BR \-s ", " \-\-status " " \fISTATUS\fR
+Status value: \fBsuccess\fR, \fBerror\fR, or \fBprogress\fR (required).
+.TP
+.BR \-m ", " \-\-message " " \fIMESSAGE\fR
+Optional status message.
+.TP
+.B \-\-strict
+Exit with error code on failure. By default, errors are swallowed and the
+command exits with code 0 for safe use in scripts with \fBset \-e\fR.
+.SS health
+Check overall system health.
+.PP
+.B statshed health
+[\fB\-\-json\fR]
+.PP
+Returns exit code 0 if healthy, 1 if unhealthy.
+.SS groups
+List all groups with health summaries.
+.PP
+.B statshed groups
+[\fB\-\-json\fR]
+.SS jobs
+List all jobs in a group.
+.PP
+.B statshed jobs
+[\fB\-\-json\fR]
+\fIGROUP_NAME\fR
+.SS config
+View or update global configuration.
+.PP
+.B statshed config
+[\fB\-p\fR \fIMINUTES\fR]
+[\fB\-s\fR \fIHOURS\fR]
+[\fB\-\-json\fR]
+.TP
+.BR \-p ", " \-\-progress\-timeout " " \fIMINUTES\fR
+Set progress timeout in minutes.
+.TP
+.BR \-s ", " \-\-staleness\-timeout " " \fIHOURS\fR
+Set staleness timeout in hours.
+.PP
+Without options, displays current configuration.
+.SS group-config
+View or update group-specific configuration.
+.PP
+.B statshed group-config
+[\fIOPTIONS\fR]
+\fIGROUP_NAME\fR
+.TP
+.BR \-p ", " \-\-progress\-timeout " " \fIMINUTES\fR
+Set progress timeout override for this group.
+.TP
+.BR \-s ", " \-\-staleness\-timeout " " \fIHOURS\fR
+Set staleness timeout override for this group.
+.TP
+.B \-\-reset\-progress\-timeout
+Reset progress timeout to global default.
+.TP
+.B \-\-reset\-staleness\-timeout
+Reset staleness timeout to global default.
+.PP
+Without options, displays current group configuration.
+.SS completion
+Generate shell completion script.
+.PP
+.B statshed completion
+\fISHELL\fR
+.PP
+Where \fISHELL\fR is one of: \fBbash\fR, \fBzsh\fR, \fBfish\fR.
+.PP
+Install completions by redirecting output to the appropriate location:
+.RS
+.nf
+\fBbash:\fR statshed completion bash > ~/.local/share/bash-completion/completions/statshed
+\fBzsh:\fR  statshed completion zsh > ~/.zfunc/_statshed
+\fBfish:\fR statshed completion fish > ~/.config/fish/completions/statshed.fish
+.fi
+.RE
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 1
+Health check returned unhealthy status.
+.TP
+.B 2
+API error.
+.TP
+.B 3
+Connection error.
+.TP
+.B 4
+Timeout error.
+.TP
+.B 5
+Configuration error.
+.TP
+.B 10
+Invalid arguments.
+.TP
+.B 11
+Resource not found.
+.SH FILES
+Configuration files are read in the following order (first found wins):
+.TP
+.I ./statshed.yaml
+Current directory configuration.
+.TP
+.I ~/.config/statshed/statshed.yaml
+User configuration.
+.TP
+.I /etc/statshed/statshed.yaml
+System-wide configuration.
+.PP
+Example configuration:
+.RS
+.nf
+url: http://localhost:7828
+output_format: table
+color: auto
+timeout: 10
+
+submit:
+  syslog: false
+  strict: false
+.fi
+.RE
+.SH ENVIRONMENT
+.TP
+.B STATSHED_URL
+StatShed API URL. Overridden by \fB\-\-url\fR option. Overrides config file.
+.TP
+.B STATSHED_CONFIG
+Path to configuration file. Overridden by \fB\-\-config\fR option.
+.TP
+.B NO_COLOR
+When set (to any value), disables colored output.
+.SH EXAMPLES
+Submit a successful job status:
+.RS
+.nf
+statshed submit -g backups -j database -s success -m "Completed in 5m"
+.fi
+.RE
+.PP
+Check system health:
+.RS
+.nf
+statshed health
+.fi
+.RE
+.PP
+List all groups:
+.RS
+.nf
+statshed groups
+.fi
+.RE
+.PP
+List jobs in a specific group:
+.RS
+.nf
+statshed jobs backups
+.fi
+.RE
+.PP
+Use in a cron job with error reporting:
+.RS
+.nf
+#!/bin/bash
+statshed submit -g backups -j database -s progress
+pg_dump mydb > /backups/mydb.sql
+if [ $? -eq 0 ]; then
+    statshed submit -g backups -j database -s success
+else
+    statshed submit -g backups -j database -s error -m "Backup failed"
+fi
+.fi
+.RE
+.PP
+Use JSON output for scripting:
+.RS
+.nf
+statshed --json health | jq '.status'
+.fi
+.RE
+.SH SEE ALSO
+.BR cron (8),
+.BR systemd.timer (5)
+.PP
+Project homepage: https://github.com/statshed/statshed-cli
+.SH AUTHOR
+StatShed CLI was created by Sean.
+.SH LICENSE
+CC0-1.0 (Public Domain Dedication)

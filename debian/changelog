@@ -1,0 +1,9 @@
+statshed-cli (1.0.2) unstable; urgency=medium
+
+  * Initial Go release: from-scratch port of the Python statshed-cli with the
+    same commands, flags, configuration, and exit codes, shipped as a single
+    dependency-free binary.
+  * Includes the submit, stream, wrap, health, groups, jobs, config,
+    group-config, and completion commands.
+
+ -- Sean <jafo00+oss@gmail.com>  Sun, 31 May 2026 12:00:00 -0600

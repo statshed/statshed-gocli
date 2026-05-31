@@ -1,0 +1,28 @@
+# Build artifacts
+/statshed
+/dist/
+*.deb
+*.rpm
+*.tar.gz
+*.tar.zst
+
+# Go
+*.test
+*.out
+coverage.txt
+
+# Debian build leftovers (when building in-tree)
+/debian/.debhelper/
+/debian/statshed-cli/
+/debian/files
+/debian/*.debhelper
+/debian/*.substvars
+/debian/debhelper-build-stamp
+
+# Nix
+/result
+/result-*
+
+# Editor / OS
+.DS_Store
+*.swp

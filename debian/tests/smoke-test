@@ -1,0 +1,17 @@
+#!/bin/sh
+# AIDEV-NOTE: Autopkgtest smoke test for the installed package. Only checks that
+# the binary and each subcommand's help/version work without a running server.
+set -e
+
+statshed --help
+statshed --version
+
+for cmd in submit stream wrap health groups jobs config group-config completion; do
+	echo "Testing: statshed $cmd --help"
+	statshed "$cmd" --help >/dev/null
+done
+
+echo "Testing: statshed completion bash"
+statshed completion bash >/dev/null
+
+echo "All smoke tests passed!"
