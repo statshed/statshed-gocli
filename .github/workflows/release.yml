@@ -1,0 +1,294 @@
+# .github/workflows/release.yml
+# AIDEV-NOTE: Unified release pipeline. Pushing a `vX.Y.Z` tag verifies version
+# consistency, then builds cross-platform static binaries, .deb (Debian/Ubuntu)
+# and .rpm (Fedora) packages, and finally creates a GitHub Release with every
+# artifact (plus SHA256SUMS) attached. `workflow_dispatch` runs the same builds
+# as a dry-run but SKIPS Release creation.
+# AIDEV-NOTE: Actions are pinned to commit SHAs (supply-chain hygiene); update the
+# SHA and the trailing version comment together. dependabot keeps them current.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Don't cancel an in-flight release; serialize per ref instead.
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - name: Determine release version
+        id: v
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            # Tag push: the tag (minus the leading v) is authoritative.
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            # workflow_dispatch dry-run: derive from debian/changelog.
+            VERSION=$(sed -nE '1s/.*\(([^)-]+).*/\1/p' debian/changelog)
+          fi
+          if [ -z "${VERSION}" ]; then
+            echo "::error::could not determine release version"
+            exit 1
+          fi
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "Release version: ${VERSION}"
+
+      - name: Versions agree across all packaging files
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          set -euo pipefail
+          DEB=$(sed -nE '1s/.*\(([^)-]+).*/\1/p' debian/changelog)
+          RPM=$(sed -nE 's/.*global version[[:space:]]+([0-9][0-9.]*).*/\1/p' packaging/rpm/statshed-cli.spec | head -1)
+          NIX=$(sed -nE 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*"([0-9][0-9.]*)".*/\1/p' nix/package.nix | head -1)
+          MK=$(sed -nE 's/^VERSION[[:space:]]*\?=[[:space:]]*([0-9][0-9.]*).*/\1/p' Makefile | head -1)
+          CL=$(sed -nE 's/^## \[([0-9][0-9.]*)\].*/\1/p' CHANGELOG.md | head -1)
+          echo "release=${VERSION} debian=${DEB} rpm=${RPM} nix=${NIX} makefile=${MK} changelog=${CL}"
+          fail=0
+          for pair in "debian/changelog=${DEB}" "rpm spec=${RPM}" "nix/package.nix=${NIX}" "Makefile=${MK}" "CHANGELOG.md=${CL}"; do
+            name="${pair%%=*}"; val="${pair#*=}"
+            if [ "${val}" != "${VERSION}" ]; then
+              echo "::error::${name} version '${val}' != release version '${VERSION}'"
+              fail=1
+            fi
+          done
+          exit "${fail}"
+
+  build-binaries:
+    needs: check-version
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # AIDEV-NOTE: Windows is intentionally excluded — internal/cli/syslog.go
+        # imports log/syslog, which Go does not implement on Windows, so a windows
+        # target fails to compile. Add windows here only after a build-tagged
+        # syslog stub exists for non-unix platforms.
+        include:
+          - { goos: linux,  goarch: amd64 }
+          - { goos: linux,  goarch: arm64 }
+          - { goos: darwin, goarch: amd64 }
+          - { goos: darwin, goarch: arm64 }
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c  # v6.4.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Build static binary and assemble archive
+        env:
+          VERSION: ${{ needs.check-version.outputs.version }}
+          TARGET_OS: ${{ matrix.goos }}
+          TARGET_ARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+          GOFLAGS: -mod=vendor
+        run: |
+          set -euo pipefail
+          bin=statshed
+          stage="statshed-cli-${VERSION}-${TARGET_OS}-${TARGET_ARCH}"
+          mkdir -p "dist/${stage}/completions"
+
+          # Cross-compile the target binary (pure Go → static, reproducible).
+          GOOS="${TARGET_OS}" GOARCH="${TARGET_ARCH}" \
+            go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
+              -o "dist/${stage}/${bin}" ./cmd/statshed
+
+          # Completions are platform-independent text; generate them host-side
+          # (the cross-built target binary may not run on this Linux runner).
+          go run ./cmd/statshed completion bash > "dist/${stage}/completions/${bin}.bash"
+          go run ./cmd/statshed completion zsh  > "dist/${stage}/completions/_${bin}"
+          go run ./cmd/statshed completion fish > "dist/${stage}/completions/${bin}.fish"
+
+          cp LICENSE README.md CHANGELOG.md docs/statshed.1 "dist/${stage}/"
+
+          tar -czf "dist/${stage}.tar.gz" -C dist "${stage}"
+          echo "ARTIFACT=dist/${stage}.tar.gz" >> "${GITHUB_ENV}"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: binary-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: ${{ env.ARTIFACT }}
+          if-no-files-found: error
+
+  build-deb:
+    needs: check-version
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { distro: debian, release: trixie }
+          - { distro: ubuntu, release: noble }
+    container:
+      image: ${{ matrix.distro }}:${{ matrix.release }}
+    steps:
+      - name: Install base build tooling
+        run: |
+          set -eux
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git ca-certificates build-essential fakeroot devscripts equivs \
+            debhelper lintian autopkgtest
+
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      # AIDEV-NOTE: actions/checkout clones as the runner user but the container
+      # runs as root; mark the workspace safe so git operations don't error.
+      - name: Mark workspace as a safe git directory
+        run: git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+
+      # AIDEV-NOTE: go.mod pins `go 1.26.2` and debian/rules sets GOTOOLCHAIN=local,
+      # so the distro's older golang-go cannot build it. Install the go.mod
+      # toolchain and put it first on PATH; debian/rules then uses it unmodified.
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c  # v6.4.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Install Build-Depends from debian/control
+        run: |
+          DEBIAN_FRONTEND=noninteractive mk-build-deps --install --remove \
+            --tool "apt-get -y --no-install-recommends" debian/control
+
+      - name: Build .deb (go test runs during the build)
+        run: dpkg-buildpackage -us -uc -b
+
+      - name: Lintian (reported, non-fatal)
+        run: lintian --fail-on error ../*.deb || echo "::warning::lintian reported issues (non-fatal)"
+
+      - name: autopkgtest smoke test (reported, non-fatal)
+        run: autopkgtest ../*.deb -- null || echo "::warning::autopkgtest returned non-zero (non-fatal)"
+
+      - name: Stage artifacts with a distro-unique name
+        run: |
+          set -eu
+          mkdir -p out
+          for f in ../*.deb; do
+            cp "${f}" "out/$(basename "${f%.deb}")_${{ matrix.distro }}-${{ matrix.release }}.deb"
+          done
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: deb-${{ matrix.distro }}-${{ matrix.release }}
+          path: out/*.deb
+          if-no-files-found: error
+
+  build-rpm:
+    needs: check-version
+    runs-on: ubuntu-latest
+    container:
+      image: fedora:latest
+    steps:
+      - name: Install RPM build tooling
+        run: |
+          set -eux
+          dnf -y install git ca-certificates rpm-build rpmdevtools tar gzip make golang
+
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - name: Mark workspace as a safe git directory
+        run: git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+
+      # AIDEV-NOTE: the rpm spec sets GOTOOLCHAIN=local; install the go.mod
+      # toolchain (>= go 1.26.2) so %build/%check use it rather than Fedora's
+      # golang (which only satisfies the BuildRequires dependency check).
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c  # v6.4.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Build RPM (go test runs in %check)
+        env:
+          VERSION: ${{ needs.check-version.outputs.version }}
+        run: |
+          set -euxo pipefail
+          rpmdev-setuptree
+          name=statshed-cli
+          # Vendored source tarball so rpmbuild builds offline (-mod=vendor).
+          git archive --format=tar.gz --prefix="${name}-${VERSION}/" \
+            -o "${HOME}/rpmbuild/SOURCES/${name}-${VERSION}.tar.gz" HEAD
+          cp packaging/rpm/statshed-cli.spec "${HOME}/rpmbuild/SPECS/"
+          rpmbuild -bb --define "version ${VERSION}" \
+            "${HOME}/rpmbuild/SPECS/statshed-cli.spec"
+          mkdir -p out
+          find "${HOME}/rpmbuild/RPMS" -name '*.rpm' -exec cp {} out/ \;
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: rpm-fedora
+          path: out/*.rpm
+          if-no-files-found: error
+
+  release:
+    needs: [check-version, build-binaries, build-deb, build-rpm]
+    # Only create a Release on a real tag push; workflow_dispatch is a dry-run.
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          path: artifacts/
+
+      - name: Collect assets and generate SHA256SUMS
+        run: |
+          set -euo pipefail
+          mkdir -p assets
+          find artifacts -type f \
+            \( -name '*.tar.gz' -o -name '*.deb' -o -name '*.rpm' \) \
+            -exec cp -n {} assets/ \;
+          ( cd assets && sha256sum -- * > SHA256SUMS )
+          echo "---- release assets ----"
+          ls -la assets
+
+      - name: Extract release notes from CHANGELOG.md
+        id: notes
+        env:
+          VERSION: ${{ needs.check-version.outputs.version }}
+        run: |
+          set -euo pipefail
+          notes_file="${RUNNER_TEMP}/notes.md"
+          awk -v ver="${VERSION}" '
+            $0 ~ ("^## \\[" ver "\\]") { grab=1; next }
+            grab && /^## \[/ { exit }
+            grab { print }
+          ' CHANGELOG.md > "${notes_file}" || true
+          if [ -s "${notes_file}" ]; then
+            echo "have_notes=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "have_notes=false" >> "${GITHUB_OUTPUT}"
+          fi
+          echo "notes_file=${notes_file}" >> "${GITHUB_OUTPUT}"
+
+      - name: Create GitHub Release and attach all artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          HAVE_NOTES: ${{ steps.notes.outputs.have_notes }}
+          NOTES_FILE: ${{ steps.notes.outputs.notes_file }}
+        run: |
+          set -euo pipefail
+          if [ "${HAVE_NOTES}" = "true" ]; then
+            gh release create "${TAG}" assets/* --title "${TAG}" --notes-file "${NOTES_FILE}"
+          else
+            gh release create "${TAG}" assets/* --title "${TAG}" --generate-notes
+          fi

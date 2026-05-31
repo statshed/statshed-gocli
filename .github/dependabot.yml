@@ -1,0 +1,14 @@
+# .github/dependabot.yml
+# AIDEV-NOTE: Keeps the SHA-pinned GitHub Actions current — dependabot bumps both
+# the pinned SHA and the trailing "# vX.Y.Z" comment together.
+# AIDEV-NOTE: gomod is intentionally NOT enabled: vendor/ is committed for offline
+# builds, and dependabot does not refresh vendor/, so a gomod bump would leave
+# vendor/ stale and break the build. Update Go deps manually with `go mod vendor`.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
