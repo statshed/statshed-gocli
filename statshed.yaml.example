@@ -1,0 +1,58 @@
+# StatShed CLI — example configuration
+#
+# Copy this file to one of the locations the CLI searches (highest precedence
+# first) and edit as needed:
+#
+#   1. the path given by --config or $STATSHED_CONFIG
+#   2. ./statshed.yaml                    (current directory)
+#   3. ~/.config/statshed/statshed.yaml   (per-user)
+#   4. /etc/statshed/statshed.yaml        (system-wide)
+#
+# e.g.  mkdir -p ~/.config/statshed
+#       cp statshed.yaml.example ~/.config/statshed/statshed.yaml
+#
+# Every key below is shown at its built-in default, so an unedited copy behaves
+# exactly like having no config file. Overall precedence is:
+#
+#   built-in defaults  <  this file  <  environment variables  <  command-line flags
+#
+# All keys are optional; omit any you don't want to override.
+
+# Base URL of the StatShed API server.
+# Overridden by the STATSHED_URL environment variable and the --url flag.
+url: http://localhost:7828
+
+# Default output format: "table" (human-readable) or "json".
+# The --json flag forces "json" regardless of this setting.
+output_format: table
+
+# Colorized output: "auto" (color only when writing to a terminal), "always",
+# or "never". A boolean is also accepted: true = always, false = never.
+# The --no-color flag forces "never".
+color: auto
+
+# HTTP request timeout in seconds. Must be a positive integer.
+timeout: 10
+
+# Number of times to retry a failed request after the first attempt.
+# Must be a non-negative integer; 0 disables retries.
+retries: 0
+
+# Base delay between retries, in seconds. Must be non-negative. Retries use
+# exponential backoff with jitter starting from this value.
+retry_delay: 1.0
+
+# Settings that apply to the submit, stream, and wrap commands.
+submit:
+  # Also send submission errors to syslog (they always go to stderr too).
+  syslog: false
+
+  # Syslog facility used when `syslog` is true. One of:
+  #   user | daemon | local0 | local1 | local2 | local3 | local4 | local5 | local6 | local7
+  # An unknown name falls back to "user".
+  syslog_facility: user
+
+  # Treat submission errors as fatal. When false (the default), submit/stream/
+  # wrap are lenient: a reporting failure is logged but the command still exits
+  # 0, which is safe under `set -e`. Equivalent to passing the --strict flag.
+  strict: false
