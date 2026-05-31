@@ -120,7 +120,7 @@ jobs:
           tar -czf "dist/${stage}.tar.gz" -C dist "${stage}"
           echo "ARTIFACT=dist/${stage}.tar.gz" >> "${GITHUB_ENV}"
 
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: binary-${{ matrix.goos }}-${{ matrix.goarch }}
           path: ${{ env.ARTIFACT }}
@@ -183,7 +183,7 @@ jobs:
             cp "${f}" "out/$(basename "${f%.deb}")_${{ matrix.distro }}-${{ matrix.release }}.deb"
           done
 
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: deb-${{ matrix.distro }}-${{ matrix.release }}
           path: out/*.deb
@@ -229,7 +229,7 @@ jobs:
           mkdir -p out
           find "${HOME}/rpmbuild/RPMS" -name '*.rpm' -exec cp {} out/ \;
 
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: rpm-fedora
           path: out/*.rpm
